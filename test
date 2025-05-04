@@ -15,7 +15,7 @@ NETWORK_THRESHOLD = 100  # MB
 
 # -------------------- Mailtrap Configuration -------------------- #
 FROM_EMAIL = "devsecops.abishek@gmail.com"  # Your Mailtrap email (can be anything)
-FROM_PASSWORD = "your-mailtrap-password"    # From Mailtrap (SMTP password)
+FROM_PASSWORD = "576cef94940eb9"    # From Mailtrap (SMTP password)
 TO_EMAIL = "abishekchamlagai123@gmail.com"  # Receiver email
 SMTP_SERVER = "sandbox.smtp.mailtrap.io"    # Mailtrap SMTP server
 SMTP_PORT = 587                             # Mailtrap SMTP port
