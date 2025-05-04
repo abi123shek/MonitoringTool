@@ -3,6 +3,9 @@ import psutil
 import time
 import smtplib
 from email.mime.text import MIMEText
+from fastapi import FastAPI, WebSocket
+from fastapi.responses import HTMLResponse
+import asyncio
 
 # -------------------- Configuration for Alerts -------------------- #
 CPU_THRESHOLD = 90
@@ -10,12 +13,12 @@ MEMORY_THRESHOLD = 80
 DISK_THRESHOLD = 90
 NETWORK_THRESHOLD = 100  # MB
 
-# Email configuration
-FROM_EMAIL = "devsecops.abishek@gmail.com"
-FROM_PASSWORD = "aauw tfqe ieyb cocd"
-TO_EMAIL = "abishekchamlagai123@gmail.com"
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
+# -------------------- Mailtrap Configuration -------------------- #
+FROM_EMAIL = "devsecops.abishek@gmail.com"  # Your Mailtrap email (can be anything)
+FROM_PASSWORD = "your-mailtrap-password"    # From Mailtrap (SMTP password)
+TO_EMAIL = "abishekchamlagai123@gmail.com"  # Receiver email
+SMTP_SERVER = "sandbox.smtp.mailtrap.io"    # Mailtrap SMTP server
+SMTP_PORT = 587                             # Mailtrap SMTP port
 
 # To avoid sending duplicate emails
 already_alerted = {
@@ -26,22 +29,112 @@ already_alerted = {
     "network_recv": False
 }
 
+# -------------------- Send Email Function -------------------- #
 def send_email(subject, body):
     msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = FROM_EMAIL
     msg["To"] = TO_EMAIL
 
-    try:
-        with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
-            server.starttls()
-            server.login(FROM_EMAIL, FROM_PASSWORD)
-            server.send_message(msg)
-        print(f"✅ Email sent: {subject}")
-    except Exception as e:
-        print(f"❌ Failed to send email: {e}")
+    with smtplib.SMTP(SMTP_SERVER, SMTP_PORT) as server:
+        server.starttls()
+        server.login(FROM_EMAIL, FROM_PASSWORD)
+        server.send_message(msg)
 
-# -------------------- CLI Live Monitor -------------------- #
+# -------------------- FastAPI WebSocket (GUI) -------------------- #
+app = FastAPI()
+
+html = """
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Linux Monitor (Real-Time)</title>
+</head>
+<body>
+    <h1>Real-Time Linux Monitoring Tool</h1>
+    <div id="data">Connecting...</div>
+    <script>
+        var ws = new WebSocket("ws://localhost:6100/ws");
+        ws.onopen = function(event) {
+            document.getElementById('data').innerHTML = "Connected! Waiting for data...";
+        };
+        ws.onmessage = function(event) {
+            document.getElementById('data').innerHTML = event.data.replace(/\n/g, '<br>');
+        };
+        ws.onerror = function(error) {
+            document.getElementById('data').innerHTML = "WebSocket error!";
+            console.error('WebSocket Error:', error);
+        };
+        ws.onclose = function() {
+            document.getElementById('data').innerHTML = "WebSocket connection closed!";
+        };
+    </script>
+</body>
+</html>
+"""
+
+@app.get("/")
+async def get():
+    return HTMLResponse(html)
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    while True:
+        cpu = psutil.cpu_percent()
+        memory = psutil.virtual_memory().percent
+        disk = psutil.disk_usage('/').percent
+        net = psutil.net_io_counters()
+
+        message = ""
+        alert_active = False
+
+        message += f"CPU Usage: {cpu}%\\n"
+        message += f"Memory Usage: {memory}%\\n"
+        message += f"Disk Usage: {disk}%\\n"
+        message += f"Bytes Sent: {net.bytes_sent / (1024 * 1024):.2f} MB\\n"
+        message += f"Bytes Received: {net.bytes_recv / (1024 * 1024):.2f} MB\\n"
+
+        # Check and send alerts
+        if cpu > CPU_THRESHOLD and not already_alerted["cpu"]:
+            send_email("⚠️ CPU ALERT", f"CPU usage exceeded {CPU_THRESHOLD}%: Currently at {cpu}%")
+            already_alerted["cpu"] = True
+            alert_active = True
+            message += "\\nALERT: CPU Usage exceeded!"
+
+        if memory > MEMORY_THRESHOLD and not already_alerted["memory"]:
+            send_email("⚠️ Memory ALERT", f"Memory usage exceeded {MEMORY_THRESHOLD}%: Currently at {memory}%")
+            already_alerted["memory"] = True
+            alert_active = True
+            message += "\\nALERT: Memory Usage exceeded!"
+
+        if disk > DISK_THRESHOLD and not already_alerted["disk"]:
+            send_email("⚠️ Disk ALERT", f"Disk usage exceeded {DISK_THRESHOLD}%: Currently at {disk}%")
+            already_alerted["disk"] = True
+            alert_active = True
+            message += "\\nALERT: Disk Usage exceeded!"
+
+        if (net.bytes_sent / (1024 * 1024)) > NETWORK_THRESHOLD and not already_alerted["network_sent"]:
+            send_email("⚠️ Network Sent ALERT", f"Network bytes sent exceeded {NETWORK_THRESHOLD}MB")
+            already_alerted["network_sent"] = True
+            alert_active = True
+            message += "\\nALERT: Network Sent exceeded!"
+
+        if (net.bytes_recv / (1024 * 1024)) > NETWORK_THRESHOLD and not already_alerted["network_recv"]:
+            send_email("⚠️ Network Received ALERT", f"Network bytes received exceeded {NETWORK_THRESHOLD}MB")
+            already_alerted["network_recv"] = True
+            alert_active = True
+            message += "\\nALERT: Network Received exceeded!"
+
+        if alert_active:
+            message = "<div class='alert'>" + message.replace("\\n", "<br>") + "</div>"
+        else:
+            message = "<div class='normal'>✅ All Systems Normal</div>"
+
+        await websocket.send_text(message)
+        await asyncio.sleep(1)
+
+# -------------------- CLI Alert Function -------------------- #
 def live_cli_monitor():
     try:
         while True:
@@ -57,39 +150,37 @@ def live_cli_monitor():
             print(f"Bytes Sent: {net.bytes_sent / (1024 * 1024):.2f} MB")
             print(f"Bytes Received: {net.bytes_recv / (1024 * 1024):.2f} MB")
 
-            # Check thresholds and send alerts
-            if cpu > CPU_THRESHOLD and not already_alerted["cpu"]:
+            if cpu > CPU_THRESHOLD:
+                print(f"\033[91mALERT: CPU Usage EXCEEDED {CPU_THRESHOLD}%\033[0m")
                 send_email("⚠️ CPU ALERT", f"CPU usage exceeded {CPU_THRESHOLD}%: Currently at {cpu}%")
-                already_alerted["cpu"] = True
-                print("\033[91mALERT: CPU Usage EXCEEDED\033[0m")
-
-            if memory > MEMORY_THRESHOLD and not already_alerted["memory"]:
+            if memory > MEMORY_THRESHOLD:
+                print(f"\033[91mALERT: Memory Usage EXCEEDED {MEMORY_THRESHOLD}%\033[0m")
                 send_email("⚠️ Memory ALERT", f"Memory usage exceeded {MEMORY_THRESHOLD}%: Currently at {memory}%")
-                already_alerted["memory"] = True
-                print("\033[91mALERT: Memory Usage EXCEEDED\033[0m")
-
-            if disk > DISK_THRESHOLD and not already_alerted["disk"]:
+            if disk > DISK_THRESHOLD:
+                print(f"\033[91mALERT: Disk Usage EXCEEDED {DISK_THRESHOLD}%\033[0m")
                 send_email("⚠️ Disk ALERT", f"Disk usage exceeded {DISK_THRESHOLD}%: Currently at {disk}%")
-                already_alerted["disk"] = True
-                print("\033[91mALERT: Disk Usage EXCEEDED\033[0m")
-
-            if (net.bytes_sent / (1024 * 1024)) > NETWORK_THRESHOLD and not already_alerted["network_sent"]:
+            if (net.bytes_sent / (1024 * 1024)) > NETWORK_THRESHOLD:
+                print(f"\033[91mALERT: Network Sent EXCEEDED {NETWORK_THRESHOLD}MB\033[0m")
                 send_email("⚠️ Network Sent ALERT", f"Network bytes sent exceeded {NETWORK_THRESHOLD}MB")
-                already_alerted["network_sent"] = True
-                print("\033[91mALERT: Network Sent EXCEEDED\033[0m")
-
-            if (net.bytes_recv / (1024 * 1024)) > NETWORK_THRESHOLD and not already_alerted["network_recv"]:
+            if (net.bytes_recv / (1024 * 1024)) > NETWORK_THRESHOLD:
+                print(f"\033[91mALERT: Network Received EXCEEDED {NETWORK_THRESHOLD}MB\033[0m")
                 send_email("⚠️ Network Received ALERT", f"Network bytes received exceeded {NETWORK_THRESHOLD}MB")
-                already_alerted["network_recv"] = True
-                print("\033[91mALERT: Network Received EXCEEDED\033[0m")
 
             time.sleep(1)
     except KeyboardInterrupt:
-        print("\n⛔ Monitoring stopped by user.")
+        print("\nStopped monitoring.")
 
 # -------------------- Main Function -------------------- #
 def main():
-    live_cli_monitor()
+    parser = argparse.ArgumentParser(description="Linux Monitoring Tool")
+    parser.add_argument('--cli', action='store_true', help="Run in CLI mode (live)")
+
+    args = parser.parse_args()
+
+    if args.cli:
+        live_cli_monitor()
+    else:
+        print("Please specify --cli mode. Use --help for help.")
 
 if __name__ == "__main__":
     main()
