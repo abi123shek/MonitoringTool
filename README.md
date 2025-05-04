@@ -12,7 +12,7 @@ Built with **Python**, **FastAPI**, and **psutil**.
 ## 📦 Installation
 
 ```bash
-git clone https://github.com/abi123shek/linux-monitor.git
+git@github.com:abi123shek/MonitoringTool.git
 cd linux-monitor
 pip install -r requirements.txt
 ```
