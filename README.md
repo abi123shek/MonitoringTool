@@ -12,7 +12,7 @@ Built with **Python**, **FastAPI**, and **psutil**.
 ## 📦 Installation
 
 ```bash
-git clone https://github.com/your-username/linux-monitor.git
+git clone https://github.com/abi123shek/linux-monitor.git
 cd linux-monitor
 pip install -r requirements.txt
 ```
@@ -59,6 +59,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## ✨ Author
 
-- GitHub: [your-username](https://github.com/your-username)
+- GitHub: [Abishek Chamlagai](https://github.com/abi123shek)
 
 Contributions are welcome! Fork it, improve it, and send a pull request 🚀
